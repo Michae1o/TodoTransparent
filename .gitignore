@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output
+*.exe
+
+# IDE / Editor
+.vscode/
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+convert_icon.ps1
