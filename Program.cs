@@ -32,6 +32,7 @@ public class SubTask {
     [DataMember] public string Text { get; set; }
     [DataMember] public bool Completed { get; set; }
     [DataMember] public DateTime CreatedAt { get; set; }
+    [DataMember] public DateTime? DueTime { get; set; }
 }
 
 [DataContract]
@@ -254,6 +255,7 @@ public class MainWindow : Window {
         titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         titleBar.MouseLeftButtonDown += (s, e) => {
+            if (isPassthrough) return;
             isDraggingWindow = true;
             dragStart = PointToScreen(e.GetPosition(this));
             windowStart = new Point(Left, Top);
@@ -261,6 +263,7 @@ public class MainWindow : Window {
             if (currentSnap != SnapEdge.None && !isExpanded) ExpandFromSnap();
             normalLeft = Left;
             normalTop = Top;
+            if (hideDelayTimer != null) hideDelayTimer.Stop();
         };
         titleBar.MouseMove += (s, e) => {
             if (!isDraggingWindow) return;
@@ -293,27 +296,30 @@ public class MainWindow : Window {
         // Apple-style circular traffic-light buttons
         btnSettings = CreateTrafficLightBtn("⚙", new SolidColorBrush(Color.FromArgb(0, 255, 255, 255)), new SolidColorBrush(Color.FromArgb(160, 160, 160, 170)));
         btnSettings.ToolTip = "设置";
-        btnSettings.Click += (s, e) => OpenSettings();
+        btnSettings.Click += (s, e) => { if (isPassthrough) return; OpenSettings(); };
 
         btnHistory = CreateTrafficLightBtn("◷", new SolidColorBrush(Color.FromArgb(0, 255, 255, 255)), new SolidColorBrush(Color.FromArgb(160, 120, 120, 128)));
         btnHistory.ToolTip = "历史事项";
-        btnHistory.Click += (s, e) => ToggleHistoryView();
+        btnHistory.Click += (s, e) => { if (isPassthrough) return; ToggleHistoryView(); };
 
         btnGhost = CreateTrafficLightBtn("○", new SolidColorBrush(Color.FromArgb(0, 255, 255, 255)), new SolidColorBrush(Color.FromArgb(160, 180, 180, 190)));
         btnGhost.ToolTip = "幽灵模式";
-        btnGhost.Click += (s, e) => ToggleGhostMode();
+        btnGhost.Click += (s, e) => { if (isPassthrough) return; ToggleGhostMode(); };
 
         btnPass = CreateTrafficLightBtn("↗", new SolidColorBrush(Color.FromArgb(0, 255, 255, 255)), new SolidColorBrush(Color.FromArgb(160, 80, 160, 255)));
-        btnPass.ToolTip = "切换鼠标穿透";
-        btnPass.Click += (s, e) => TogglePassthrough();
+        btnPass.ToolTip = "切换鼠标穿透（穿透模式下双击解锁）";
+        btnPass.PreviewMouseLeftButtonDown += (s, e) => {
+            if (isPassthrough) { if (e.ClickCount == 2) TogglePassthrough(); }
+            else TogglePassthrough();
+        };
 
         var btnMin = CreateTrafficLightBtn("—", new SolidColorBrush(Color.FromArgb(0, 255, 255, 255)), new SolidColorBrush(Color.FromArgb(160, 255, 190, 50)));
         btnMin.ToolTip = "最小化";
-        btnMin.Click += (s, e) => WindowState = WindowState.Minimized;
+        btnMin.Click += (s, e) => { if (isPassthrough) return; WindowState = WindowState.Minimized; };
 
         var btnClose = CreateTrafficLightBtn("×", new SolidColorBrush(Color.FromArgb(0, 255, 255, 255)), new SolidColorBrush(Color.FromArgb(160, 255, 95, 85)));
         btnClose.ToolTip = "关闭";
-        btnClose.Click += (s, e) => Close();
+        btnClose.Click += (s, e) => { if (isPassthrough) return; Close(); };
 
         btns.Children.Add(btnSettings);
         btns.Children.Add(btnHistory);
@@ -374,6 +380,7 @@ public class MainWindow : Window {
             BorderThickness = new Thickness(0),
             Margin = new Thickness(14, 0, 14, 14),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             CanContentScroll = false
         };
         scrollViewer.SizeChanged += (s, e) => UpdateDynamicHeights();
@@ -383,17 +390,37 @@ public class MainWindow : Window {
 
         scrollViewer.Loaded += (s, e) => {
             foreach (var sb in FindVisualChildren<ScrollBar>(scrollViewer)) {
-                sb.Opacity = 0.08;
-                sb.Width = 3;
+                sb.Opacity = 0.15;
+                sb.Width = 5;
                 sb.Background = Brushes.Transparent;
+                // Override ScrollBar template to only show Thumb, no track
+                string sbXaml = "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ScrollBar'>" +
+                    "<Grid><Track x:Name='PART_Track' IsDirectionReversed='True'>" +
+                    "<Track.DecreaseRepeatButton><RepeatButton Command='ScrollBar.PageUpCommand' Background='Transparent' BorderThickness='0' Width='5'/></Track.DecreaseRepeatButton>" +
+                    "<Track.Thumb><Thumb x:Name='Thumb' Width='5'/></Track.Thumb>" +
+                    "<Track.IncreaseRepeatButton><RepeatButton Command='ScrollBar.PageDownCommand' Background='Transparent' BorderThickness='0' Width='5'/></Track.IncreaseRepeatButton>" +
+                    "</Track></Grid></ControlTemplate>";
+                sb.Template = (ControlTemplate)XamlReader.Parse(sbXaml);
                 foreach (var thumb in FindVisualChildren<Thumb>(sb)) {
                     string thumbXaml = "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Thumb'>" +
-                        "<Border Background='{TemplateBinding Background}' CornerRadius='2' Width='3'/>" +
+                        "<Border Background='{TemplateBinding Background}' CornerRadius='4' Width='5'/>" +
                         "</ControlTemplate>";
                     thumb.Template = (ControlTemplate)XamlReader.Parse(thumbXaml);
-                    thumb.Background = new SolidColorBrush(Color.FromArgb(100, 255, 255, 255));
+                    thumb.Background = new SolidColorBrush(Color.FromArgb(120, 200, 200, 210));
                 }
             }
+        };
+        scrollViewer.PreviewMouseWheel += (s, e) => {
+            scrollViewer.ScrollToVerticalOffset(scrollViewer.VerticalOffset - e.Delta / 3);
+            e.Handled = true;
+        };
+        scrollViewer.MouseEnter += (s, e) => {
+            foreach (var sb in FindVisualChildren<ScrollBar>(scrollViewer))
+                Animate(sb, UIElement.OpacityProperty, sb.Opacity, 0.55, 200);
+        };
+        scrollViewer.MouseLeave += (s, e) => {
+            foreach (var sb in FindVisualChildren<ScrollBar>(scrollViewer))
+                if (sb.Opacity > 0.16) Animate(sb, UIElement.OpacityProperty, sb.Opacity, 0.15, 300);
         };
 
         // Resize handle
@@ -405,11 +432,13 @@ public class MainWindow : Window {
             Margin = new Thickness(0, 0, 6, 6)
         };
         resizeHandle.MouseLeftButtonDown += (s, e) => {
+            if (isPassthrough) return;
             isResizing = true;
             resizeStart = PointToScreen(Mouse.GetPosition(this));
             sizeStart = new Size(Width, Height);
             resizeHandle.CaptureMouse();
             e.Handled = true;
+            if (hideDelayTimer != null) hideDelayTimer.Stop();
         };
         resizeHandle.MouseMove += (s, e) => {
             if (!isResizing) return;
@@ -446,6 +475,28 @@ public class MainWindow : Window {
         // Global mouse for item drag ghost
         MouseMove += OnWindowMouseMove;
         MouseLeftButtonUp += OnWindowMouseUp;
+
+        // Click to expand / double-click to unlock when snapped
+        MouseLeftButtonDown += (s, e) => {
+            if (isPassthrough) return;
+            if (currentSnap != SnapEdge.None && !isExpanded) {
+                if (e.ClickCount == 2) {
+                    // Double-click: expand and fully unlock
+                    ExpandFromSnap();
+                    currentSnap = SnapEdge.None;
+                } else {
+                    // Single click: expand and start dragging immediately
+                    isDraggingWindow = true;
+                    dragStart = PointToScreen(e.GetPosition(this));
+                    windowStart = new Point(Left, Top);
+                    Mouse.Capture(this);
+                    ExpandFromSnap();
+                    normalLeft = Left;
+                    normalTop = Top;
+                }
+                e.Handled = true;
+            }
+        };
 
         Loaded += (s, e) => {
             StartMouseCheck();
@@ -515,12 +566,14 @@ public class MainWindow : Window {
             scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
         };
         btn.MouseEnter += (s, e) => {
+            if (isPassthrough) return;
             if (!(bool)btn.Tag) {
                 btn.Background = hoverBg;
                 btn.Foreground = TB(BtnEnterFg());
             }
         };
         btn.MouseLeave += (s, e) => {
+            if (isPassthrough) return;
             if (!(bool)btn.Tag) {
                 btn.Background = defaultBg;
                 btn.Foreground = TB(BtnDefFg());
@@ -675,8 +728,8 @@ public class MainWindow : Window {
     Color PopupBgC()    { return isLightTheme ? TC(230, 255, 255, 255) : TC(230, 35, 35, 40); }
     Color PopTextPri()  { return isLightTheme ? TC(240, 40, 40, 45)  : TC(240, 245, 245, 247); }
     Color PopTextSec()  { return isLightTheme ? TC(200, 80, 80, 90)   : TC(160, 180, 180, 190); }
-    Color CbBgC()       { return isLightTheme ? TC(255, 250, 250, 252) : TC(255, 45, 48, 52); }
-    Color CbFgC()       { return isLightTheme ? TC(240, 40, 40, 45)  : TC(240, 245, 245, 247); }
+    Color CbBgC()       { return isLightTheme ? TC(255, 250, 250, 252) : TC(255, 55, 58, 64); }
+    Color CbFgC()       { return isLightTheme ? TC(240, 40, 40, 45)  : TC(255, 240, 240, 244); }
     Color SepC()        { return isLightTheme ? TC(30, 0, 0, 0)       : TC(18, 255, 255, 255); }
     Color PrioBg1()     { return isLightTheme ? TC(35, 255, 90, 70)   : TC(30, 255, 90, 70); }
     Color PrioBg2()     { return isLightTheme ? TC(35, 255, 195, 50)  : TC(30, 255, 195, 50); }
@@ -703,7 +756,7 @@ public class MainWindow : Window {
     Color ExpandFg()    { return isLightTheme ? TC(160, 80, 80, 90)   : TC(80, 180, 180, 190); }
     Color ExpandFgH()   { return isLightTheme ? TC(220, 60, 60, 70)   : TC(140, 180, 180, 190); }
     Color TipTxt()      { return isLightTheme ? TC(180, 100, 100, 110) : TC(100, 140, 140, 150); }
-    Color LabelTxt()    { return isLightTheme ? TC(220, 60, 60, 70)   : TC(140, 180, 180, 190); }
+    Color LabelTxt()    { return isLightTheme ? TC(240, 45, 45, 52)   : TC(200, 210, 210, 218); }
 
     ComboBox CreateStyledComboBox(double width, double height, Thickness margin) {
         var cb = new ComboBox {
@@ -711,7 +764,7 @@ public class MainWindow : Window {
             Margin = margin,
             Background = TB(CbBgC()),
             Foreground = TB(CbFgC()),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(100, 160, 160, 170))
+            BorderBrush = new SolidColorBrush(isLightTheme ? Color.FromArgb(120, 160, 160, 170) : Color.FromArgb(160, 180, 180, 190))
         };
         var cbBg = TB(CbBgC());
         var cbFg = TB(CbFgC());
@@ -727,7 +780,7 @@ public class MainWindow : Window {
         string templateXaml =
             "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ComboBoxItem'>" +
             "<Border Name='bd' Background='{TemplateBinding Background}' Padding='6,4'>" +
-            "<ContentPresenter TextElement.Foreground='{TemplateBinding Foreground}' VerticalAlignment='Center'/>" +
+            "<ContentPresenter TextElement.Foreground='#FF1E1E23' VerticalAlignment='Center'/>" +
             "</Border>" +
             "<ControlTemplate.Triggers>" +
             "<Trigger Property='IsHighlighted' Value='True'>" +
@@ -742,7 +795,7 @@ public class MainWindow : Window {
             "</ControlTemplate>";
         style.Setters.Add(new Setter(Control.TemplateProperty, (ControlTemplate)XamlReader.Parse(templateXaml)));
         style.Setters.Add(new Setter(Control.BackgroundProperty, TB(CbBgC())));
-        style.Setters.Add(new Setter(Control.ForegroundProperty, TB(CbFgC())));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(Color.FromArgb(240, 30, 30, 35))));
         cb.ItemContainerStyle = style;
 
         cb.Loaded += (s, e) => {
@@ -839,16 +892,16 @@ public class MainWindow : Window {
         isExpanded = false;
         switch (currentSnap) {
             case SnapEdge.Left:
-                Animate(this, Window.LeftProperty, Left, -ActualWidth + 5, 250);
+                Animate(this, Window.LeftProperty, Left, -ActualWidth + 20, 250);
                 break;
             case SnapEdge.Right:
-                Animate(this, Window.LeftProperty, Left, screen.Width - 5, 250);
+                Animate(this, Window.LeftProperty, Left, screen.Width - 20, 250);
                 break;
             case SnapEdge.Top:
-                Animate(this, Window.TopProperty, Top, -ActualHeight + 5, 250);
+                Animate(this, Window.TopProperty, Top, -ActualHeight + 20, 250);
                 break;
             case SnapEdge.Bottom:
-                Animate(this, Window.TopProperty, Top, screen.Height - 5, 250);
+                Animate(this, Window.TopProperty, Top, screen.Height - 20, 250);
                 break;
         }
     }
@@ -1079,6 +1132,16 @@ public class MainWindow : Window {
     }
 
     void OnWindowMouseMove(object sender, MouseEventArgs e) {
+        if (isPassthrough) return;
+        // Window drag from snapped state
+        if (isDraggingWindow && Mouse.Captured == this) {
+            var screenPos = PointToScreen(e.GetPosition(this));
+            Left = windowStart.X + (screenPos.X - dragStart.X);
+            Top = windowStart.Y + (screenPos.Y - dragStart.Y);
+            currentSnap = SnapEdge.None;
+            isExpanded = true;
+            return;
+        }
         if (!isDraggingItem || dragGhost == null) return;
         var pos = e.GetPosition(dragOverlay);
         Canvas.SetLeft(dragGhost, pos.X - itemDragOffset.X);
@@ -1102,6 +1165,14 @@ public class MainWindow : Window {
     }
 
     void OnWindowMouseUp(object sender, MouseButtonEventArgs e) {
+        // Window drag release from snapped state
+        if (isPassthrough) return;
+        if (isDraggingWindow && Mouse.Captured == this) {
+            isDraggingWindow = false;
+            Mouse.Capture(null);
+            CheckAndSnap();
+            return;
+        }
         if (!isDraggingItem || dragGhost == null) return;
         isDraggingItem = false;
         Mouse.Capture(null);
@@ -1453,20 +1524,52 @@ public class MainWindow : Window {
                     subCb.Template = (ControlTemplate)XamlReader.Parse(subCbXaml);
                     subCb.Background = Brushes.Transparent;
                     subCb.BorderBrush = new SolidColorBrush(Color.FromArgb((byte)(isLightTheme ? 120 : 80), 160, 160, 170));
-                    subCb.Checked += (s2, e2) => { sub.Completed = true; Save(); };
-                    subCb.Unchecked += (s2, e2) => { sub.Completed = false; Save(); };
                     Grid.SetColumn(subCb, 0);
                     subRow.Children.Add(subCb);
 
+                    var subTxtWrap = new Grid();
                     var subTxt = new TextBlock {
                         Text = sub.Text,
                         Foreground = sub.Completed ? TB(SubDoneTxt()) : TB(SubTxt()),
                         VerticalAlignment = VerticalAlignment.Center,
-                        TextDecorations = sub.Completed ? TextDecorations.Strikethrough : null,
                         FontSize = 12
                     };
-                    Grid.SetColumn(subTxt, 1);
-                    subRow.Children.Add(subTxt);
+                    subTxtWrap.Children.Add(subTxt);
+                    var strikeRect = new Rectangle {
+                        Height = 1.5, Fill = GetAccentBrush(200),
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        RadiusX = 0.75, RadiusY = 0.75,
+                        Width = 0
+                    };
+                    subTxtWrap.Children.Add(strikeRect);
+
+                    subCb.Checked += (s2, e2) => {
+                        sub.Completed = true; subTxt.Foreground = TB(SubDoneTxt());
+                        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => {
+                            Animate(strikeRect, FrameworkElement.WidthProperty, 0, subTxt.ActualWidth + 6, 250);
+                        }));
+                        Save();
+                    };
+                    subCb.Unchecked += (s2, e2) => { sub.Completed = false; subTxt.Foreground = TB(SubTxt()); strikeRect.Width = 0; Save(); };
+
+                    var capSubR = sub; var capTodoR = todo;
+                    subTxtWrap.Cursor = Cursors.Hand;
+                    subTxtWrap.MouseLeftButtonDown += (s, e2) => {
+                        if (e2.ClickCount == 2 && !isPassthrough) {
+                            e2.Handled = true;
+                            OpenSubTaskDetail(capSubR, capTodoR, () => { Save(); Render(); });
+                        }
+                    };
+                    Grid.SetColumn(subTxtWrap, 1);
+                    subRow.Children.Add(subTxtWrap);
+
+                    if (sub.Completed) {
+                        var capTxt2 = subTxt; var capRect2 = strikeRect;
+                        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => {
+                            capRect2.Width = capTxt2.ActualWidth + 6;
+                        }));
+                    }
 
                     subPanel.Children.Add(subRow);
                 }
@@ -1553,6 +1656,14 @@ public class MainWindow : Window {
             rootBorder.BorderBrush = lightBorder;
             inputWrap.BorderBrush = lightBorder;
             inputBox.CaretBrush = lightBrush;
+        }
+        // Ensure last task can be scrolled fully into view
+        taskPanel.Children.Add(new Rectangle { Height = 8, Fill = Brushes.Transparent });
+        // Single task: make it fill more space
+        int activeCount = todos.Count(t => !t.Completed);
+        if (activeCount == 1 && taskPanel.Children.Count > 0) {
+            var item = taskPanel.Children[0] as FrameworkElement;
+            if (item != null) item.MinHeight = Math.Max(120, ActualHeight * 0.55);
         }
         UpdateDynamicHeights();
     }
@@ -1658,9 +1769,9 @@ public class MainWindow : Window {
         double available = scrollViewer.ActualHeight - marginTotal;
         double h = available / count;
         const double MIN_H = 52;
-        const double MAX_H = 120;
 
         if (h < MIN_H) {
+            // Too many tasks to fit — let all use natural height, ScrollViewer scrolls
             foreach (var child in taskPanel.Children) {
                 var border = child as Border;
                 if (border != null && !double.IsNaN(border.Height)) {
@@ -1670,10 +1781,24 @@ public class MainWindow : Window {
             return;
         }
 
-        double targetH = Math.Min(MAX_H, h);
+        // Enough space — only constrain tasks WITHOUT subtasks to fill evenly
+        int activeIdx = 0;
         foreach (var child in taskPanel.Children) {
             var border = child as Border;
-            if (border != null) {
+            if (border == null) continue;
+            // Find corresponding todo item
+            TodoItem todo = null;
+            for (int ti = activeIdx; ti < todos.Count; ti++) {
+                if (!todos[ti].Completed) { todo = todos[ti]; activeIdx = ti + 1; break; }
+            }
+            bool hasSubtasks = todo != null && todo.SubTasks.Count > 0;
+            if (hasSubtasks) {
+                // Never constrain tasks with subtasks — let them show all content
+                if (!double.IsNaN(border.Height))
+                    border.ClearValue(FrameworkElement.HeightProperty);
+            } else {
+                // Constrain plain tasks to fill space evenly, up to 120px
+                double targetH = Math.Min(120, h);
                 double current = border.Height;
                 if (double.IsNaN(current)) current = border.ActualHeight;
                 if (Math.Abs(current - targetH) > 1) {
@@ -1693,9 +1818,9 @@ public class MainWindow : Window {
             Background = TB(CardBgC()),
             BorderBrush = isLightTheme ? new SolidColorBrush(Color.FromArgb(120, 40, 40, 45)) : new SolidColorBrush(Color.FromArgb(140, 200, 200, 210)),
             BorderThickness = new Thickness(1),
-            Width = 280,
+            MaxWidth = 400,
             VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(16)
         };
         var cardShadow = new System.Windows.Media.Effects.DropShadowEffect {
@@ -1850,20 +1975,43 @@ public class MainWindow : Window {
                 subCb.Template = (ControlTemplate)XamlReader.Parse(subCbXaml);
                 subCb.Background = Brushes.Transparent;
                 subCb.BorderBrush = new SolidColorBrush(Color.FromArgb((byte)(isLightTheme ? 120 : 100), 160, 160, 170));
-                subCb.Checked += (s, e) => { sub.Completed = true; };
-                subCb.Unchecked += (s, e) => { sub.Completed = false; };
                 Grid.SetColumn(subCb, 0);
                 subGrid.Children.Add(subCb);
 
+                var subTxtWrap = new Grid();
                 var subTxt = new TextBlock {
                     Text = sub.Text,
                     Foreground = sub.Completed ? TB(SubDoneTxt()) : TB(TextPri()),
                     VerticalAlignment = VerticalAlignment.Center,
-                    TextDecorations = sub.Completed ? TextDecorations.Strikethrough : null,
                     FontSize = 13
                 };
-                Grid.SetColumn(subTxt, 1);
-                subGrid.Children.Add(subTxt);
+                subTxtWrap.Children.Add(subTxt);
+                var strikeRect = new Rectangle {
+                    Height = 1.5, Fill = GetAccentBrush(200),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    RadiusX = 0.75, RadiusY = 0.75,
+                    Width = sub.Completed ? double.NaN : 0
+                };
+                subTxtWrap.Children.Add(strikeRect);
+                var capSubD = sub; var capTodoD = todo;
+                subTxtWrap.Cursor = Cursors.Hand;
+                subTxtWrap.MouseLeftButtonDown += (s, e) => {
+                    if (e.ClickCount == 2 && !isPassthrough) {
+                        e.Handled = true;
+                        OpenSubTaskDetail(capSubD, capTodoD, refreshSubList);
+                    }
+                };
+                Grid.SetColumn(subTxtWrap, 1);
+                subGrid.Children.Add(subTxtWrap);
+
+                subCb.Checked += (s, e) => {
+                    sub.Completed = true; subTxt.Foreground = TB(SubDoneTxt());
+                    Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => {
+                        Animate(strikeRect, FrameworkElement.WidthProperty, 0, subTxt.ActualWidth + 6, 250);
+                    }));
+                };
+                subCb.Unchecked += (s, e) => { sub.Completed = false; subTxt.Foreground = TB(TextPri()); strikeRect.Width = 0; };
 
                 var subDel = new Button {
                     Content = "×", Width = 16, Height = 16,
@@ -1879,10 +2027,24 @@ public class MainWindow : Window {
                 subGrid.Children.Add(subDel);
 
                 subList.Children.Add(subGrid);
+                if (sub.Completed) {
+                    var capTxt = subTxt; var capRect = strikeRect;
+                    Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => {
+                        capRect.Width = capTxt.ActualWidth + 6;
+                    }));
+                }
             }
         };
         refreshSubList();
-        sp.Children.Add(subList);
+        var subListScroll = new ScrollViewer {
+            Content = subList,
+            MaxHeight = 220,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0)
+        };
+        sp.Children.Add(subListScroll);
 
         var addSubGrid = new Grid { Margin = new Thickness(0, 8, 0, 0) };
         addSubGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -1896,19 +2058,22 @@ public class MainWindow : Window {
             FontSize = 12,
             CaretBrush = TB(TextPri())
         };
-        Grid.SetColumn(subInput, 0);
-        addSubGrid.Children.Add(subInput);
-        var btnAddSub = CreateBtn("+", 24, 24, 6);
-        btnAddSub.FontSize = 14;
-        btnAddSub.Margin = new Thickness(6, 0, 0, 0);
-        btnAddSub.Click += (s, e) => {
+        Action addSubAction = () => {
             var st = subInput.Text.Trim();
             if (!string.IsNullOrEmpty(st)) {
                 todo.SubTasks.Add(new SubTask { Text = st, CreatedAt = DateTime.Now });
                 subInput.Text = "";
                 refreshSubList();
+                Save();
             }
         };
+        subInput.KeyDown += (s, e) => { if (e.Key == Key.Enter) { addSubAction(); e.Handled = true; } };
+        Grid.SetColumn(subInput, 0);
+        addSubGrid.Children.Add(subInput);
+        var btnAddSub = CreateBtn("+", 24, 24, 6);
+        btnAddSub.FontSize = 14;
+        btnAddSub.Margin = new Thickness(6, 0, 0, 0);
+        btnAddSub.Click += (s, e) => addSubAction();
         Grid.SetColumn(btnAddSub, 1);
         addSubGrid.Children.Add(btnAddSub);
         sp.Children.Add(addSubGrid);
@@ -1944,7 +2109,152 @@ public class MainWindow : Window {
         };
         sp.Children.Add(btnSave);
 
-        card.Child = sp;
+        var cardScroll = new ScrollViewer {
+            Content = sp,
+            MaxHeight = Math.Max(300, ActualHeight * 0.82),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0)
+        };
+        card.Child = cardScroll;
+        detailOverlay.Children.Add(card);
+
+        var scale = new ScaleTransform(0.88, 0.88);
+        card.RenderTransform = scale;
+        card.RenderTransformOrigin = new Point(0.5, 0.5);
+        card.Opacity = 0;
+        Animate(card, UIElement.OpacityProperty, 0, 1, 250, EasingType.EaseOutQuint);
+        Animate(scale, ScaleTransform.ScaleXProperty, 0.88, 1.0, 450, EasingType.Spring);
+        Animate(scale, ScaleTransform.ScaleYProperty, 0.88, 1.0, 450, EasingType.Spring);
+    }
+
+    void OpenSubTaskDetail(SubTask sub, TodoItem parentTodo, Action onSave) {
+        detailOverlay.Children.Clear();
+        detailOverlay.Visibility = Visibility.Visible;
+        string accentHex = GetAccentHex();
+
+        var card = new Border {
+            CornerRadius = new CornerRadius(20),
+            Background = TB(CardBgC()),
+            BorderBrush = isLightTheme ? new SolidColorBrush(Color.FromArgb(120, 40, 40, 45)) : new SolidColorBrush(Color.FromArgb(140, 200, 200, 210)),
+            BorderThickness = new Thickness(1),
+            MaxWidth = 360,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(24)
+        };
+        card.Effect = new System.Windows.Media.Effects.DropShadowEffect {
+            BlurRadius = 32, ShadowDepth = 12, Direction = 270,
+            Color = isLightTheme ? Color.FromArgb(120, 0, 0, 0) : Color.FromArgb(160, 0, 0, 0), Opacity = isLightTheme ? 0.25 : 0.4
+        };
+
+        var sp = new StackPanel { Margin = new Thickness(20) };
+
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(new TextBlock { Text = "编辑子任务", Foreground = TB(TextPri()), FontSize = 15, FontWeight = FontWeights.SemiBold });
+        var btnClose = CreateTrafficLightBtn("×", Brushes.Transparent, new SolidColorBrush(Color.FromArgb(140, 255, 95, 85)));
+        btnClose.Click += (s, e) => { detailOverlay.Visibility = Visibility.Collapsed; detailOverlay.Children.Clear(); };
+        Grid.SetColumn(btnClose, 1);
+        header.Children.Add(btnClose);
+        sp.Children.Add(header);
+
+        sp.Children.Add(new TextBlock { Text = "名称", Foreground = TB(LabelTxt()), FontSize = 11, Margin = new Thickness(0, 10, 0, 4) });
+        var nameEdit = new TextBox {
+            Text = sub.Text, Foreground = TB(TextPri()), Background = TB(EditBgC()),
+            BorderBrush = isLightTheme ? new SolidColorBrush(Color.FromArgb(100, 40, 40, 45)) : new SolidColorBrush(Color.FromArgb(100, 200, 200, 210)),
+            BorderThickness = new Thickness(1), Padding = new Thickness(8, 5, 8, 5), FontSize = 13, CaretBrush = TB(TextPri())
+        };
+        sp.Children.Add(nameEdit);
+
+        sp.Children.Add(new TextBlock { Text = "创建时间：" + sub.CreatedAt.ToString("yyyy-MM-dd HH:mm"), Foreground = TB(TextSec()), FontSize = 11, Margin = new Thickness(0, 8, 0, 0) });
+
+        sp.Children.Add(new TextBlock { Text = "截止时间", Foreground = TB(LabelTxt()), FontSize = 11, Margin = new Thickness(0, 10, 0, 6) });
+        var dueGrid = new Grid();
+        for (int c = 0; c < 5; c++) dueGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var yBox = CreateStyledComboBox(50, 26, new Thickness(0));
+        for (int y = 2024; y <= 2034; y++) yBox.Items.Add(y.ToString());
+        yBox.SelectedItem = sub.DueTime.HasValue ? sub.DueTime.Value.Year.ToString() : DateTime.Now.Year.ToString();
+
+        var moBox = CreateStyledComboBox(40, 26, new Thickness(3, 0, 0, 0));
+        for (int m = 1; m <= 12; m++) moBox.Items.Add(m.ToString("D2"));
+        moBox.SelectedItem = sub.DueTime.HasValue ? sub.DueTime.Value.Month.ToString("D2") : DateTime.Now.Month.ToString("D2");
+
+        var dBox = CreateStyledComboBox(40, 26, new Thickness(3, 0, 0, 0));
+        for (int d = 1; d <= 31; d++) dBox.Items.Add(d.ToString("D2"));
+        dBox.SelectedItem = sub.DueTime.HasValue ? sub.DueTime.Value.Day.ToString("D2") : DateTime.Now.Day.ToString("D2");
+
+        var hBox = CreateStyledComboBox(40, 26, new Thickness(3, 0, 0, 0));
+        for (int h = 0; h < 24; h++) hBox.Items.Add(h.ToString("D2"));
+        hBox.SelectedItem = sub.DueTime.HasValue ? sub.DueTime.Value.Hour.ToString("D2") : "23";
+
+        var minBox = CreateStyledComboBox(40, 26, new Thickness(3, 0, 0, 0));
+        for (int mn = 0; mn < 60; mn++) minBox.Items.Add(mn.ToString("D2"));
+        minBox.SelectedItem = sub.DueTime.HasValue ? sub.DueTime.Value.Minute.ToString("D2") : "59";
+
+        Grid.SetColumn(yBox, 0); Grid.SetColumn(moBox, 1); Grid.SetColumn(dBox, 2);
+        Grid.SetColumn(hBox, 3); Grid.SetColumn(minBox, 4);
+        dueGrid.Children.Add(yBox); dueGrid.Children.Add(moBox); dueGrid.Children.Add(dBox);
+        dueGrid.Children.Add(hBox); dueGrid.Children.Add(minBox);
+        sp.Children.Add(dueGrid);
+
+        var btnRow = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var btnDel = new Button {
+            Content = "删除", Background = Brushes.Transparent,
+            Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 95, 85)),
+            BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Color.FromArgb(100, 255, 95, 85)),
+            Padding = new Thickness(12, 6, 12, 6), FontSize = 11,
+            Template = CreateRoundedTemplate(8)
+        };
+        btnDel.Click += (s, e) => {
+            parentTodo.SubTasks.Remove(sub);
+            detailOverlay.Visibility = Visibility.Collapsed; detailOverlay.Children.Clear();
+            onSave();
+        };
+        Grid.SetColumn(btnDel, 0);
+        btnRow.Children.Add(btnDel);
+
+        var btnSave = new Button {
+            Content = "保存", Background = GetAccentBrush(200), Foreground = Brushes.White,
+            BorderThickness = new Thickness(0), Padding = new Thickness(16, 6, 16, 6), FontSize = 11,
+            Template = CreateRoundedTemplate(8)
+        };
+        btnSave.Click += (s, e) => {
+            sub.Text = nameEdit.Text.Trim();
+            if (yBox.SelectedItem != null && moBox.SelectedItem != null && dBox.SelectedItem != null) {
+                int y = int.Parse((string)yBox.SelectedItem);
+                int mnth = int.Parse((string)moBox.SelectedItem);
+                int d = int.Parse((string)dBox.SelectedItem);
+                d = Math.Min(d, DateTime.DaysInMonth(y, mnth));
+                int h = int.Parse((string)hBox.SelectedItem);
+                int mn = int.Parse((string)minBox.SelectedItem);
+                sub.DueTime = new DateTime(y, mnth, d, h, mn, 0);
+            } else {
+                sub.DueTime = null;
+            }
+            detailOverlay.Visibility = Visibility.Collapsed; detailOverlay.Children.Clear();
+            onSave();
+        };
+        Grid.SetColumn(btnSave, 2);
+        btnRow.Children.Add(btnSave);
+        sp.Children.Add(btnRow);
+
+        var cardScroll = new ScrollViewer {
+            Content = sp,
+            MaxHeight = Math.Max(280, ActualHeight * 0.82),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0)
+        };
+        card.Child = cardScroll;
         detailOverlay.Children.Add(card);
 
         var scale = new ScaleTransform(0.88, 0.88);
@@ -1965,9 +2275,9 @@ public class MainWindow : Window {
             Background = TB(CardBgC()),
             BorderBrush = isLightTheme ? new SolidColorBrush(Color.FromArgb(120, 40, 40, 45)) : new SolidColorBrush(Color.FromArgb(140, 200, 200, 210)),
             BorderThickness = new Thickness(1),
-            Width = 280,
+            MaxWidth = 400,
             VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(16)
         };
         card.Effect = new System.Windows.Media.Effects.DropShadowEffect {
