@@ -12,6 +12,7 @@ using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Controls.Primitives;
+using System.Windows.Shell;
 using System.Windows.Threading;
 using System.Diagnostics;
 using Microsoft.Win32;
@@ -165,6 +166,15 @@ public class MainWindow : Window {
         Background = Brushes.Transparent;
         Topmost = true;
         ResizeMode = ResizeMode.NoResize;
+        UseLayoutRounding = true;
+        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+        WindowChrome.SetWindowChrome(this, new WindowChrome {
+            CaptionHeight = 0,
+            CornerRadius = new CornerRadius(24),
+            GlassFrameThickness = new Thickness(0),
+            ResizeBorderThickness = new Thickness(0),
+            UseAeroCaptionButtons = false
+        });
         try {
             if (File.Exists("icon.png"))
                 Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(System.IO.Path.Combine(Environment.CurrentDirectory, "icon.png"), UriKind.Absolute));
@@ -412,6 +422,7 @@ public class MainWindow : Window {
             resizeHandle.ReleaseMouseCapture();
         };
         Grid.SetRow(resizeHandle, 2);
+        Panel.SetZIndex(resizeHandle, 300);
 
         // Task detail overlay (double-click popup)
         detailOverlay = new Grid {
@@ -422,6 +433,7 @@ public class MainWindow : Window {
         Panel.SetZIndex(detailOverlay, 200);
 
         grid.Children.Add(titleBar);
+        Panel.SetZIndex(titleBar, 300);
         grid.Children.Add(inputWrap);
         grid.Children.Add(scrollViewer);
         grid.Children.Add(dragOverlay);
@@ -2054,7 +2066,7 @@ public class MainWindow : Window {
                 backgroundStretch = fillValues[idx];
                 SaveSettings();
                 ApplyBackgroundImage();
-                foreach (var fb in fillBtns) fb.Background = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255));
+                foreach (var fb in fillBtns) fb.Background = isLightTheme ? new SolidColorBrush(Color.FromArgb(60, 0, 0, 0)) : new SolidColorBrush(Color.FromArgb(70, 255, 255, 255));
                 fillBtns[idx].Background = GetAccentBrush(160);
             };
             fillWrap.Children.Add(fillBtns[fi]);
