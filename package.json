@@ -1,0 +1,23 @@
+{
+  "name": "todo-transparent",
+  "version": "1.0.0",
+  "description": "Transparent sticky todo app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3"
+  },
+  "build": {
+    "appId": "com.example.todo-transparent",
+    "productName": "Todo透明便签",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "portable"
+    }
+  }
+}

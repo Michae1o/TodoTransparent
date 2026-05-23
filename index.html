@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>待办便签</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div class="titlebar">
+      <span class="title">待办事项</span>
+      <div class="controls">
+        <button id="btn-passthrough" title="切换鼠标穿透">🖱️</button>
+        <button id="btn-minimize" title="最小化">—</button>
+        <button id="btn-close" title="关闭">✕</button>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <input type="text" id="todo-input" placeholder="输入待办，按回车添加...">
+      <button id="btn-add">+</button>
+    </div>
+
+    <ul id="todo-list"></ul>
+
+    <div class="resize-handle" title="拖拽调整大小"></div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
