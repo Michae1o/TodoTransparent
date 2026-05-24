@@ -260,7 +260,18 @@ public class MainWindow : Window {
             dragStart = PointToScreen(e.GetPosition(this));
             windowStart = new Point(Left, Top);
             titleBar.CaptureMouse();
-            if (currentSnap != SnapEdge.None && !isExpanded) ExpandFromSnap();
+            // Cancel any running position animations to prevent drag lag
+            for (int i = activeAnimations.Count - 1; i >= 0; i--) {
+                var a = activeAnimations[i];
+                if (a.Target == this && (a.Property == Window.LeftProperty || a.Property == Window.TopProperty))
+                    activeAnimations.RemoveAt(i);
+            }
+            if (activeAnimations.Count == 0)
+                CompositionTarget.Rendering -= OnAnimationFrame;
+            if (currentSnap != SnapEdge.None && !isExpanded) {
+                isExpanded = true;
+                currentSnap = SnapEdge.None;
+            }
             normalLeft = Left;
             normalTop = Top;
             if (hideDelayTimer != null) hideDelayTimer.Stop();
@@ -1020,6 +1031,19 @@ public class MainWindow : Window {
 
         if (currentSnap == SnapEdge.None) return;
 
+        // Don't interfere with user dragging or resizing
+        if (isDraggingWindow || isResizing) return;
+
+        // Don't start new snap animation while one is running
+        bool animating = false;
+        for (int i = activeAnimations.Count - 1; i >= 0; i--) {
+            var a = activeAnimations[i];
+            if (a.Target == this && (a.Property == Window.LeftProperty || a.Property == Window.TopProperty)) {
+                animating = true; break;
+            }
+        }
+        if (animating) return;
+
         bool inTrigger = false;
         bool inWindow = false;
 
@@ -1027,18 +1051,18 @@ public class MainWindow : Window {
             inWindow = pt.X >= Left && pt.X <= Left + ActualWidth && pt.Y >= Top && pt.Y <= Top + ActualHeight;
         } else {
             switch (currentSnap) {
-                case SnapEdge.Left: inWindow = pt.X <= 8 && pt.Y >= Top && pt.Y <= Top + ActualHeight; break;
-                case SnapEdge.Right: inWindow = pt.X >= screen.Width - 8 && pt.Y >= Top && pt.Y <= Top + ActualHeight; break;
-                case SnapEdge.Top: inWindow = pt.Y <= 8 && pt.X >= Left && pt.X <= Left + ActualWidth; break;
-                case SnapEdge.Bottom: inWindow = pt.Y >= screen.Height - 8 && pt.X >= Left && pt.X <= Left + ActualWidth; break;
+                case SnapEdge.Left: inWindow = pt.X <= 12 && pt.Y >= Top && pt.Y <= Top + ActualHeight; break;
+                case SnapEdge.Right: inWindow = pt.X >= screen.Width - 12 && pt.Y >= Top && pt.Y <= Top + ActualHeight; break;
+                case SnapEdge.Top: inWindow = pt.Y <= 12 && pt.X >= Left && pt.X <= Left + ActualWidth; break;
+                case SnapEdge.Bottom: inWindow = pt.Y >= screen.Height - 12 && pt.X >= Left && pt.X <= Left + ActualWidth; break;
             }
         }
 
         switch (currentSnap) {
-            case SnapEdge.Left: inTrigger = pt.X <= 8 && pt.Y >= Top && pt.Y <= Top + ActualHeight; break;
-            case SnapEdge.Right: inTrigger = pt.X >= screen.Width - 8 && pt.Y >= Top && pt.Y <= Top + ActualHeight; break;
-            case SnapEdge.Top: inTrigger = pt.Y <= 8 && pt.X >= Left && pt.X <= Left + ActualWidth; break;
-            case SnapEdge.Bottom: inTrigger = pt.Y >= screen.Height - 8 && pt.X >= Left && pt.X <= Left + ActualWidth; break;
+            case SnapEdge.Left: inTrigger = pt.X <= 12 && pt.Y >= Top && pt.Y <= Top + ActualHeight; break;
+            case SnapEdge.Right: inTrigger = pt.X >= screen.Width - 12 && pt.Y >= Top && pt.Y <= Top + ActualHeight; break;
+            case SnapEdge.Top: inTrigger = pt.Y <= 12 && pt.X >= Left && pt.X <= Left + ActualWidth; break;
+            case SnapEdge.Bottom: inTrigger = pt.Y >= screen.Height - 12 && pt.X >= Left && pt.X <= Left + ActualWidth; break;
         }
 
         if (!isExpanded && inTrigger) {
@@ -1046,7 +1070,7 @@ public class MainWindow : Window {
             if (hideDelayTimer != null) hideDelayTimer.Stop();
         } else if (isExpanded && !inWindow) {
             if (hideDelayTimer == null) {
-                hideDelayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                hideDelayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
                 hideDelayTimer.Tick += (s2, e2) => { hideDelayTimer.Stop(); HideToSnap(); };
             }
             if (!hideDelayTimer.IsEnabled) hideDelayTimer.Start();
